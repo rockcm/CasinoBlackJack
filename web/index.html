@@ -316,6 +316,44 @@
       .card { width: 46px; height: 66px; }
       .cc-big { font-size: 18px; }
     }
+
+    /* ── Card flip (hole card reveal) ───────────────────────────── */
+    .card.card-flipper { perspective: 900px; }
+    .flip-inner {
+      width: 100%; height: 100%; position: relative;
+      transform-style: preserve-3d;
+      transition: transform 0.48s cubic-bezier(0.4,0,0.2,1);
+    }
+    .card.card-flipper.flipped .flip-inner { transform: rotateY(180deg); }
+    .flip-inner > .flip-back,
+    .flip-inner > .flip-front {
+      position: absolute; inset: 0; border-radius: 9px;
+      backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    }
+    .flip-inner > .flip-front { transform: rotateY(180deg); }
+
+    /* ── Screen shake (bust) ─────────────────────────────────────── */
+    @keyframes shake {
+      0%,100%{ transform:none }
+      15%,45%,75%{ transform:translateX(-8px) rotate(-.6deg) }
+      30%,60%,90%{ transform:translateX( 8px) rotate( .6deg) }
+    }
+    .shake { animation: shake .44s ease; }
+
+    /* ── Card glow (win / blackjack) ─────────────────────────────── */
+    @keyframes cardGlow {
+      0%,100%{ box-shadow:2px 4px 16px rgba(0,0,0,.55) }
+      50%{ box-shadow:0 0 24px 7px var(--gc,rgba(105,240,174,.75)),2px 4px 16px rgba(0,0,0,.4) }
+    }
+    .card.glow      { --gc:rgba(105,240,174,.8);  animation: cardGlow .65s ease 2; }
+    .card.glow-gold { --gc:rgba(201,162,39,.95); animation: cardGlow .55s ease 3; }
+
+    /* ── Chip counter bump ───────────────────────────────────────── */
+    @keyframes chipBump { 0%,100%{transform:scale(1)} 40%{transform:scale(1.25)} }
+    .chips-val.bump { animation: chipBump .32s ease; }
+
+    /* ── Particles canvas ────────────────────────────────────────── */
+    #particles { position:absolute; inset:0; pointer-events:none; z-index:55; display:none; }
   </style>
 </head>
 <body>
@@ -401,6 +439,9 @@
     <button class="go-btn" onclick="restart()">PLAY AGAIN</button>
   </div>
 
+  <!-- ─── Particles ───────────────────────────────────── -->
+  <canvas id="particles"></canvas>
+
   <!-- ─── Result Overlay ─────────────────────────────── -->
   <div id="overlay">
     <div class="res-box">
@@ -414,7 +455,7 @@
 </div>
 <script>
 // ================================================================
-//  BLACKJACK — engine + UI
+//  BLACKJACK — engine + UI  (v2: audio · flip cards · particles)
 // ================================================================
 const FACES = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
 const SUITS = ['♣','♦','♥','♠'];
@@ -424,8 +465,88 @@ const RED   = new Set(['♦','♥']);
 let deck   = [], pHand = [], dHand = [];
 let chips  = 500;
 let curBet = 0, pendingBet = 25;
-let phase  = 'bet'; // 'bet' | 'playing' | 'done'
+let phase  = 'bet';
 let stats  = { w:0, l:0, p:0, h:0 };
+let holeCardEl = null; // reference to the flippable hole-card element
+
+// ── Audio Engine (Web Audio API — no files needed) ───────────────
+let _ctx = null;
+function getCtx() {
+  try {
+    if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    if (_ctx.state === 'suspended') _ctx.resume();
+    return _ctx;
+  } catch(e) { return null; }
+}
+function tone(freq, dur, vol=0.25, type='sine') {
+  const ctx=getCtx(); if(!ctx) return;
+  const o=ctx.createOscillator(), g=ctx.createGain();
+  o.connect(g); g.connect(ctx.destination);
+  o.type=type; o.frequency.value=freq;
+  g.gain.setValueAtTime(vol, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+dur);
+  o.start(); o.stop(ctx.currentTime+dur);
+}
+function percNoise(dur, vol=0.35) {
+  const ctx=getCtx(); if(!ctx) return;
+  const sr=ctx.sampleRate;
+  const buf=ctx.createBuffer(1, Math.floor(sr*dur), sr);
+  const d=buf.getChannelData(0);
+  for(let i=0;i<d.length;i++) d[i]=(Math.random()*2-1)*Math.exp(-i/(d.length*0.14));
+  const s=ctx.createBufferSource(), g=ctx.createGain();
+  s.buffer=buf; s.connect(g); g.connect(ctx.destination);
+  g.gain.value=vol; s.start();
+}
+
+const sndDeal      = () => percNoise(0.055, 0.42);
+const sndFlip      = () => { tone(560,0.07,0.2); setTimeout(()=>tone(370,0.13,0.17),58); };
+const sndClick     = () => percNoise(0.03, 0.18);
+const sndWin       = () => [[523,0],[659,90],[784,185],[1047,285]].forEach(([f,t])=>setTimeout(()=>tone(f,.38,.28),t));
+const sndBlackjack = () => [[523,0],[659,78],[784,156],[1047,240],[1319,330],[1568,430]].forEach(([f,t])=>setTimeout(()=>tone(f,.55,.36),t));
+const sndLose      = () => [[275,0],[200,115],[140,230]].forEach(([f,t])=>setTimeout(()=>tone(f,.48,.28,'sawtooth'),t));
+const sndBust      = () => { tone(175,.65,.32,'sawtooth'); setTimeout(()=>tone(115,.55,.22,'sawtooth'),105); };
+const sndPush      = () => tone(440,.32,.2);
+const sndChip      = () => { tone(1100,.065,.34); setTimeout(()=>tone(850,.09,.22),58); };
+
+// ── Particle burst ───────────────────────────────────────────────
+function burst(type) {
+  const canvas=$('particles');
+  const W=canvas.width=canvas.offsetWidth, H=canvas.height=canvas.offsetHeight;
+  const ctx2=canvas.getContext('2d');
+  canvas.style.display='block';
+  const PAL={
+    win:       ['#69f0ae','#4caf50','#b2dfdb','#ffffff','#a5d6a7'],
+    blackjack: ['#ffd700','#c9a227','#e8c34a','#ffffff','#ffe082'],
+    push:      ['#e8c34a','#ffffff','rgba(255,255,255,0.55)'],
+  };
+  const colors=PAL[type]||PAL.win, count=type==='blackjack'?80:42;
+  const ps=Array.from({length:count},()=>({
+    x:Math.random()*W, y:-10,
+    vx:(Math.random()-.5)*5.5, vy:Math.random()*3.5+1.5,
+    r:Math.random()*5+3,
+    col:colors[Math.floor(Math.random()*colors.length)],
+    rot:Math.random()*Math.PI*2, rspd:(Math.random()-.5)*.24,
+    alpha:1,
+  }));
+  let raf;
+  (function tick(){
+    ctx2.clearRect(0,0,W,H);
+    let any=false;
+    for(const p of ps){
+      p.x+=p.vx; p.y+=p.vy; p.vy+=.13; p.rot+=p.rspd; p.alpha-=.013;
+      if(p.alpha>0){
+        any=true;
+        ctx2.save(); ctx2.globalAlpha=p.alpha;
+        ctx2.translate(p.x,p.y); ctx2.rotate(p.rot); ctx2.fillStyle=p.col;
+        if(p.r>6){ ctx2.beginPath(); ctx2.arc(0,0,p.r/2,0,Math.PI*2); ctx2.fill(); }
+        else      { ctx2.fillRect(-p.r/2,-p.r/2,p.r,p.r*.6); }
+        ctx2.restore();
+      }
+    }
+    if(any) raf=requestAnimationFrame(tick);
+    else { cancelAnimationFrame(raf); canvas.style.display='none'; }
+  })();
+}
 
 // ── Deck helpers ─────────────────────────────────────────────────
 function buildDeck() {
@@ -433,295 +554,322 @@ function buildDeck() {
   for (const s of SUITS) for (const f of FACES) deck.push({ f, s });
 }
 function shuffle() {
-  for (let i = deck.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [deck[i], deck[j]] = [deck[j], deck[i]];
+  for (let i=deck.length-1; i>0; i--) {
+    const j=Math.floor(Math.random()*(i+1));
+    [deck[i],deck[j]]=[deck[j],deck[i]];
   }
 }
 const pop = () => deck.pop();
 
 // ── Hand value ───────────────────────────────────────────────────
-function fv(f) {
-  if (f === 'A') return 11;
-  if ('JQK'.includes(f)) return 10;
-  return +f;
-}
+function fv(f) { if(f==='A')return 11; if('JQK'.includes(f))return 10; return +f; }
 function hv(hand) {
-  let t = 0, a = 0;
-  for (const c of hand) { t += fv(c.f); if (c.f === 'A') a++; }
-  while (t > 21 && a--) t -= 10;
+  let t=0,a=0;
+  for(const c of hand){ t+=fv(c.f); if(c.f==='A')a++; }
+  while(t>21&&a--) t-=10;
   return t;
 }
 function isSoft(hand) {
-  if (!hand.some(c => c.f === 'A')) return false;
-  let h = 0;
-  for (const c of hand) h += c.f === 'A' ? 1 : fv(c.f);
-  return h + 10 <= 21;
+  if(!hand.some(c=>c.f==='A')) return false;
+  let h=0;
+  for(const c of hand) h+=c.f==='A'?1:fv(c.f);
+  return h+10<=21;
 }
 
-// ── Card element ─────────────────────────────────────────────────
-function makeCard(card, faceDown = false) {
-  const el = document.createElement('div');
-  if (faceDown) {
-    el.className = 'card';
-    const back = document.createElement('div');
-    back.className = 'card-back';
-    el.appendChild(back);
-    return el;
+// ── Card elements ────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function cardHTML(card) {
+  return `<div class="cc"><div class="cc-rank">${card.f}</div><div class="cc-suit">${card.s}</div></div>` +
+         `<div class="cc-big">${card.s}</div>` +
+         `<div class="cc bot"><div class="cc-rank">${card.f}</div><div class="cc-suit">${card.s}</div></div>`;
+}
+
+function makeCard(card, faceDown=false) {
+  const el=document.createElement('div');
+  if(faceDown){
+    el.className='card';
+    const b=document.createElement('div'); b.className='card-back';
+    el.appendChild(b); return el;
   }
-  el.className = 'card ' + (RED.has(card.s) ? 'red' : 'blk');
-  const face = document.createElement('div');
-  face.className = 'card-face';
-  face.innerHTML =
-    `<div class="cc"><div class="cc-rank">${card.f}</div><div class="cc-suit">${card.s}</div></div>` +
-    `<div class="cc-big">${card.s}</div>` +
-    `<div class="cc bot"><div class="cc-rank">${card.f}</div><div class="cc-suit">${card.s}</div></div>`;
-  el.appendChild(face);
+  el.className='card '+(RED.has(card.s)?'red':'blk');
+  const f=document.createElement('div'); f.className='card-face';
+  f.innerHTML=cardHTML(card); el.appendChild(f); return el;
+}
+
+// Flippable hole card: back visible initially, 3D-flips to reveal face
+function makeHoleCard(card) {
+  const el=document.createElement('div');
+  el.className='card card-flipper '+(RED.has(card.s)?'red':'blk');
+  const inner=document.createElement('div'); inner.className='flip-inner';
+  const back=document.createElement('div');  back.className='card-back flip-back';
+  const front=document.createElement('div'); front.className='card-face flip-front';
+  front.innerHTML=cardHTML(card);
+  inner.appendChild(back); inner.appendChild(front); el.appendChild(inner);
   return el;
 }
 
-// ── DOM helpers ──────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
+function addCard(cid, card, faceDown=false) { $(cid).appendChild(makeCard(card,faceDown)); }
 
-function addCard(containerId, card, faceDown = false) {
-  $(containerId).appendChild(makeCard(card, faceDown));
-}
-
-function clearCards() {
-  $('p-cards').innerHTML = '';
-  $('d-cards').innerHTML = '';
-}
+function clearCards() { $('p-cards').innerHTML=''; $('d-cards').innerHTML=''; holeCardEl=null; }
 
 function revealHole() {
-  const dc = $('d-cards');
-  dc.lastChild?.remove();
-  addCard('d-cards', dHand[1]);
-}
-
-function setBadge(id, val, isNat) {
-  const el = $(id);
-  el.textContent = val;
-  el.className = 'val-badge' + (val > 21 ? ' bust' : isNat ? ' natural' : '');
-}
-
-function refreshP() {
-  const v = hv(pHand);
-  setBadge('p-val', v, v === 21 && pHand.length === 2);
-}
-
-function refreshD(full) {
-  if (!full) { $('d-val').textContent = '?'; $('d-val').className = 'val-badge'; return; }
-  const v = hv(dHand);
-  setBadge('d-val', v, v === 21 && dHand.length === 2);
-}
-
-function setActions(canDouble) {
-  const row = $('btn-row');
-  if (canDouble) {
-    row.className = 'btn-row c3';
-    row.innerHTML =
-      `<button class="g-btn hit"    onclick="doHit()"><span class="ico">👆</span>HIT</button>` +
-      `<button class="g-btn stand"  onclick="doStand()"><span class="ico">✋</span>STAND</button>` +
-      `<button class="g-btn double" onclick="doDouble()"><span class="ico">✌️</span>DOUBLE</button>`;
-  } else {
-    row.className = 'btn-row c2';
-    row.innerHTML =
-      `<button class="g-btn hit"   onclick="doHit()"><span class="ico">👆</span>HIT</button>` +
-      `<button class="g-btn stand" onclick="doStand()"><span class="ico">✋</span>STAND</button>`;
+  if(holeCardEl && !holeCardEl.classList.contains('flipped')){
+    sndFlip();
+    holeCardEl.classList.add('flipped');
   }
 }
 
-function clearActions() { $('btn-row').innerHTML = ''; }
+// ── DOM helpers ──────────────────────────────────────────────────
+function setBadge(id, val, isNat) {
+  const el=$(id);
+  el.textContent=val;
+  el.className='val-badge'+(val>21?' bust':isNat?' natural':'');
+}
+function refreshP() { const v=hv(pHand); setBadge('p-val',v,v===21&&pHand.length===2); }
+function refreshD(full) {
+  if(!full){ $('d-val').textContent='?'; $('d-val').className='val-badge'; return; }
+  const v=hv(dHand); setBadge('d-val',v,v===21&&dHand.length===2);
+}
+
+function setActions(canDouble) {
+  const row=$('btn-row');
+  if(canDouble){
+    row.className='btn-row c3';
+    row.innerHTML=
+      `<button class="g-btn hit"    onclick="doHit()"><span class="ico">👆</span>HIT</button>`+
+      `<button class="g-btn stand"  onclick="doStand()"><span class="ico">✋</span>STAND</button>`+
+      `<button class="g-btn double" onclick="doDouble()"><span class="ico">✌️</span>DOUBLE</button>`;
+  } else {
+    row.className='btn-row c2';
+    row.innerHTML=
+      `<button class="g-btn hit"   onclick="doHit()"><span class="ico">👆</span>HIT</button>`+
+      `<button class="g-btn stand" onclick="doStand()"><span class="ico">✋</span>STAND</button>`;
+  }
+}
+function clearActions() { $('btn-row').innerHTML=''; }
 
 function showScreen(id) {
-  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
   $(id).classList.add('on');
 }
 
 function showResult(head, cls, eye, delta, dc) {
-  $('r-head').textContent  = head;
-  $('r-head').className    = 'res-head ' + cls;
-  $('r-eye').textContent   = eye;
-  $('r-delta').textContent = delta;
-  $('r-delta').className   = 'res-delta ' + dc;
+  $('r-head').textContent=head; $('r-head').className='res-head '+cls;
+  $('r-eye').textContent=eye;
+  $('r-delta').textContent=delta; $('r-delta').className='res-delta '+dc;
   $('overlay').classList.add('on');
 }
 
-function updateHdr()  { $('hdr-chips').textContent = '$' + chips; }
-function updateStats(){ $('sw').textContent=stats.w; $('sl').textContent=stats.l; $('sp').textContent=stats.p; $('sh').textContent=stats.h; }
-
-// ── Bet screen ───────────────────────────────────────────────────
-function qBet(n, btn) {
-  pendingBet = Math.min(n, chips);
-  $('bet-val').textContent = pendingBet;
-  document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('sel'));
-  btn.classList.add('sel');
+function bumpChips() {
+  const el=$('hdr-chips');
+  el.classList.remove('bump'); void el.offsetWidth;
+  el.classList.add('bump');
+  el.addEventListener('animationend',()=>el.classList.remove('bump'),{once:true});
 }
 
+function updateHdr()   { $('hdr-chips').textContent='$'+chips; bumpChips(); }
+function updateStats() { $('sw').textContent=stats.w; $('sl').textContent=stats.l; $('sp').textContent=stats.p; $('sh').textContent=stats.h; }
+
+function glowCards(cid, gold=false) {
+  $(cid).querySelectorAll('.card').forEach((c,i)=>{
+    setTimeout(()=>{
+      const cls=gold?'glow-gold':'glow';
+      c.classList.add(cls);
+      c.addEventListener('animationend',()=>c.classList.remove(cls),{once:true});
+    },i*80);
+  });
+}
+
+function shakeBust() {
+  const el=$('game-screen');
+  el.classList.add('shake');
+  el.addEventListener('animationend',()=>el.classList.remove('shake'),{once:true});
+}
+
+// ── Bet screen ───────────────────────────────────────────────────
+function qBet(n,btn) {
+  sndClick();
+  pendingBet=Math.min(n,chips);
+  $('bet-val').textContent=pendingBet;
+  document.querySelectorAll('.chip-btn').forEach(b=>b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
 function qBetMax(btn) {
-  pendingBet = chips;
-  $('bet-val').textContent = chips;
-  document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('sel'));
+  sndClick();
+  pendingBet=chips; $('bet-val').textContent=chips;
+  document.querySelectorAll('.chip-btn').forEach(b=>b.classList.remove('sel'));
   btn.classList.add('sel');
 }
 
 // ── Deal ─────────────────────────────────────────────────────────
 function deal() {
-  if (pendingBet < 1 || pendingBet > chips) return;
-
+  if(pendingBet<1||pendingBet>chips) return;
+  sndClick();
   buildDeck(); shuffle();
-  chips -= pendingBet;
-  curBet = pendingBet;
-  pHand = []; dHand = [];
-
-  // Deal order: p1 d1 p2 d2(hole)
+  chips-=pendingBet; curBet=pendingBet;
+  pHand=[]; dHand=[];
   pHand.push(pop()); dHand.push(pop());
   pHand.push(pop()); dHand.push(pop());
 
-  $('cur-bet').textContent = curBet;
+  $('cur-bet').textContent=curBet;
   updateHdr();
   showScreen('game-screen');
-  clearCards();
-  clearActions();
-  refreshD(false);
-  refreshP();
+  clearCards(); clearActions();
+  refreshD(false); refreshP();
 
-  const T = 220;
-  setTimeout(() => addCard('p-cards', pHand[0]),       0 * T);
-  setTimeout(() => addCard('d-cards', dHand[0]),       1 * T);
-  setTimeout(() => addCard('p-cards', pHand[1]),       2 * T);
-  setTimeout(() => addCard('d-cards', null, true),     3 * T);
-  setTimeout(() => afterDeal(), 3 * T + 360);
+  const T=220;
+  setTimeout(()=>{ sndDeal(); addCard('p-cards',pHand[0]); },       0*T);
+  setTimeout(()=>{ sndDeal(); addCard('d-cards',dHand[0]); },       1*T);
+  setTimeout(()=>{ sndDeal(); addCard('p-cards',pHand[1]); },       2*T);
+  setTimeout(()=>{
+    sndDeal();
+    holeCardEl=makeHoleCard(dHand[1]);
+    $('d-cards').appendChild(holeCardEl);
+  }, 3*T);
+  setTimeout(()=>afterDeal(), 3*T+380);
 }
 
 function afterDeal() {
   refreshP();
-  const pv = hv(pHand), dv = hv(dHand);
+  const pv=hv(pHand), dv=hv(dHand);
 
-  if (pv === 21 || dv === 21) {
-    revealHole(); refreshD(true);
-    stats.h++;
-    if (pv === 21 && dv === 21) {
-      chips += curBet; stats.p++;
-      updateHdr();
-      showResult('PUSH','push','Both have Blackjack','Bet returned','neu');
-    } else if (pv === 21) {
-      const profit = Math.floor(curBet * 1.5);
-      chips += curBet + profit; stats.w++;
-      updateHdr();
-      showResult('BLACKJACK!','win','Natural 21 — 3:2 payout','+$'+profit,'pos');
-    } else {
-      stats.l++;
-      showResult('DEALER WINS','lose','Dealer has Blackjack','-$'+curBet,'neg');
-    }
-    updateStats(); return;
+  if(pv===21||dv===21){
+    revealHole(); // starts 0.48 s CSS flip
+    setTimeout(()=>{
+      refreshD(true);
+      stats.h++;
+      if(pv===21&&dv===21){
+        chips+=curBet; stats.p++;
+        updateHdr(); updateStats(); sndPush();
+        setTimeout(()=>showResult('PUSH','push','Both have Blackjack','Bet returned','neu'),650);
+      } else if(pv===21){
+        const profit=Math.floor(curBet*1.5);
+        chips+=curBet+profit; stats.w++;
+        updateHdr(); updateStats(); sndBlackjack();
+        glowCards('p-cards',true);
+        setTimeout(()=>{ burst('blackjack'); showResult('BLACKJACK!','win','Natural 21 — 3:2 payout','+$'+profit,'pos'); },380);
+      } else {
+        stats.l++; updateStats(); sndLose();
+        setTimeout(()=>showResult('DEALER WINS','lose','Dealer has Blackjack','-$'+curBet,'neg'),650);
+      }
+    },520); // wait for flip animation
+    return;
   }
 
-  setActions(chips >= curBet);
-  phase = 'playing';
+  setActions(chips>=curBet);
+  phase='playing';
 }
 
 // ── Player actions ───────────────────────────────────────────────
 function doHit() {
-  if (phase !== 'playing') return;
-  pHand.push(pop());
-  addCard('p-cards', pHand.at(-1));
-  refreshP();
-
-  const v = hv(pHand);
-  if (v > 21) {
-    phase = 'done'; clearActions();
+  if(phase!=='playing') return;
+  sndDeal();
+  pHand.push(pop()); addCard('p-cards',pHand.at(-1)); refreshP();
+  const v=hv(pHand);
+  if(v>21){
+    phase='done'; clearActions();
+    shakeBust(); sndBust();
     stats.h++; stats.l++; updateStats();
-    setTimeout(() => showResult('BUST','lose','Over 21','-$'+curBet,'neg'), 280);
+    setTimeout(()=>showResult('BUST','lose','Over 21','-$'+curBet,'neg'),620);
     return;
   }
-  if (v === 21) { setTimeout(() => doStand(), 380); return; }
-  setActions(false); // double no longer available after a hit
+  if(v===21){ setTimeout(()=>doStand(),380); return; }
+  setActions(false);
 }
 
 function doStand() {
-  if (phase !== 'playing') return;
-  phase = 'done'; clearActions(); runDealer();
+  if(phase!=='playing') return;
+  sndClick(); phase='done'; clearActions(); runDealer();
 }
 
 function doDouble() {
-  if (phase !== 'playing' || chips < curBet) return;
-  chips -= curBet; curBet *= 2;
-  $('cur-bet').textContent = curBet; updateHdr();
-
-  pHand.push(pop());
-  addCard('p-cards', pHand.at(-1));
-  refreshP(); clearActions();
-  phase = 'done';
-
-  const v = hv(pHand);
-  if (v > 21) {
+  if(phase!=='playing'||chips<curBet) return;
+  sndChip();
+  chips-=curBet; curBet*=2;
+  $('cur-bet').textContent=curBet; updateHdr();
+  sndDeal();
+  pHand.push(pop()); addCard('p-cards',pHand.at(-1)); refreshP(); clearActions();
+  phase='done';
+  const v=hv(pHand);
+  if(v>21){
+    shakeBust(); sndBust();
     stats.h++; stats.l++; updateStats();
-    setTimeout(() => showResult('BUST','lose','Doubled — over 21','-$'+curBet,'neg'), 280);
+    setTimeout(()=>showResult('BUST','lose','Doubled — over 21','-$'+curBet,'neg'),620);
     return;
   }
-  setTimeout(() => runDealer(), 500);
+  setTimeout(()=>runDealer(),530);
 }
 
 // ── Dealer play ──────────────────────────────────────────────────
 function runDealer() {
-  revealHole(); refreshD(true);
-
-  function step() {
-    const dv = hv(dHand);
-    if (dv < 17 || (dv === 17 && isSoft(dHand))) {
-      setTimeout(() => {
-        dHand.push(pop());
-        addCard('d-cards', dHand.at(-1));
-        refreshD(true); step();
-      }, 560);
-    } else {
-      setTimeout(resolveRound, 400);
+  revealHole();
+  // Wait for hole-card flip, then start dealer logic
+  setTimeout(()=>{
+    refreshD(true);
+    function step() {
+      const dv=hv(dHand);
+      if(dv<17||(dv===17&&isSoft(dHand))){
+        setTimeout(()=>{
+          sndDeal();
+          dHand.push(pop()); addCard('d-cards',dHand.at(-1));
+          refreshD(true); step();
+        },580);
+      } else {
+        // Short pause so dealer's final hand is clearly visible before resolve
+        setTimeout(resolveRound,300);
+      }
     }
-  }
-  setTimeout(step, 420);
+    step();
+  },520);
 }
 
 function resolveRound() {
-  const pv = hv(pHand), dv = hv(dHand);
+  const pv=hv(pHand), dv=hv(dHand);
   stats.h++;
 
-  if (dv > 21) {
-    chips += curBet * 2; stats.w++;
-    showResult('YOU WIN!','win','Dealer busted','+$'+curBet,'pos');
-  } else if (pv > dv) {
-    chips += curBet * 2; stats.w++;
-    showResult('YOU WIN!','win', pv+' vs '+dv,'+$'+curBet,'pos');
-  } else if (pv === dv) {
-    chips += curBet; stats.p++;
-    showResult('PUSH','push','Both '+pv,'Bet returned','neu');
+  let head,cls,eye,delta,dc,doParticles=false;
+  if(dv>21){
+    chips+=curBet*2; stats.w++;
+    head='YOU WIN!'; cls='win'; eye='Dealer busted'; delta='+$'+curBet; dc='pos';
+    sndWin(); doParticles=true;
+  } else if(pv>dv){
+    chips+=curBet*2; stats.w++;
+    head='YOU WIN!'; cls='win'; eye=pv+' vs '+dv; delta='+$'+curBet; dc='pos';
+    sndWin(); doParticles=true;
+  } else if(pv===dv){
+    chips+=curBet; stats.p++;
+    head='PUSH'; cls='push'; eye='Both '+pv; delta='Bet returned'; dc='neu';
+    sndPush();
   } else {
     stats.l++;
-    showResult('DEALER WINS','lose', dv+' vs '+pv,'-$'+curBet,'neg');
+    head='DEALER WINS'; cls='lose'; eye=dv+' vs '+pv; delta='-$'+curBet; dc='neg';
+    sndLose();
   }
 
   updateHdr(); updateStats();
+  if(doParticles){ glowCards('p-cards'); setTimeout(()=>burst('win'),160); }
+
+  // 1.2 s pause — player sees the final table state before the overlay appears
+  setTimeout(()=>showResult(head,cls,eye,delta,dc),1200);
 }
 
 // ── Navigation ───────────────────────────────────────────────────
 function nextHand() {
   $('overlay').classList.remove('on');
-  phase = 'bet';
-
-  if (chips <= 0) { showScreen('go-screen'); return; }
-
-  pendingBet = Math.min(pendingBet, chips);
-  $('bet-val').textContent = pendingBet;
+  phase='bet';
+  if(chips<=0){ showScreen('go-screen'); return; }
+  pendingBet=Math.min(pendingBet,chips);
+  $('bet-val').textContent=pendingBet;
   showScreen('bet-screen');
 }
 
 function restart() {
-  chips = 500; pendingBet = 25;
-  stats = { w:0, l:0, p:0, h:0 };
+  chips=500; pendingBet=25;
+  stats={w:0,l:0,p:0,h:0};
   updateHdr(); updateStats();
-  $('bet-val').textContent = 25;
-  phase = 'bet';
-  showScreen('bet-screen');
+  $('bet-val').textContent=25;
+  phase='bet'; showScreen('bet-screen');
 }
 
 // Init
