@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#143a14">
@@ -23,7 +23,8 @@
 
     /* ── App shell ─────────────────────────────────────────── */
     #app {
-      width: 100%; max-width: 480px; height: 100vh;
+      width: 100%; max-width: 480px;
+      height: 100vh; height: 100svh;
       margin: 0 auto;
       display: flex; flex-direction: column;
       background: radial-gradient(ellipse 130% 90% at 50% 35%,
@@ -216,7 +217,7 @@
     /* ── Action bar ──────────────────────────────────────────── */
     .action-bar {
       padding: 10px 14px;
-      padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 20px);
       background: rgba(0,0,0,0.32);
       border-top: 1px solid rgba(255,255,255,0.07);
       flex-shrink: 0;
@@ -471,24 +472,48 @@ let holeCardEl = null; // reference to the flippable hole-card element
 
 // ── Audio Engine (Web Audio API — no files needed) ───────────────
 let _ctx = null;
+
+// Standard unlock for iOS/Chrome autoplay policy.
+// Creates the AudioContext and plays a silent buffer on first interaction.
+function _unlockAudio() {
+  try {
+    if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS requires a real buffer to be played to unlock audio.
+    const buf = _ctx.createBuffer(1, 1, 22050);
+    const src = _ctx.createBufferSource();
+    src.buffer = buf; src.connect(_ctx.destination); src.start(0);
+    _ctx.resume().then(() => {
+      document.removeEventListener('touchstart', _unlockAudio);
+      document.removeEventListener('touchend',   _unlockAudio);
+      document.removeEventListener('pointerdown', _unlockAudio);
+      document.removeEventListener('click',       _unlockAudio);
+    });
+  } catch(e) {}
+}
+document.addEventListener('touchstart',  _unlockAudio, { once:true, passive:true });
+document.addEventListener('touchend',    _unlockAudio, { once:true, passive:true });
+document.addEventListener('pointerdown', _unlockAudio, { once:true });
+document.addEventListener('click',       _unlockAudio, { once:true });
+
 function getCtx() {
   try {
     if (!_ctx) _ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (_ctx.state === 'suspended') _ctx.resume();
+    if (_ctx.state !== 'running') _ctx.resume();
     return _ctx;
   } catch(e) { return null; }
 }
 function tone(freq, dur, vol=0.25, type='sine') {
-  const ctx=getCtx(); if(!ctx) return;
+  const ctx=getCtx(); if(!ctx||ctx.state==='suspended') return;
   const o=ctx.createOscillator(), g=ctx.createGain();
   o.connect(g); g.connect(ctx.destination);
   o.type=type; o.frequency.value=freq;
-  g.gain.setValueAtTime(vol, ctx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+dur);
-  o.start(); o.stop(ctx.currentTime+dur);
+  const t=ctx.currentTime;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t+dur);
+  o.start(t); o.stop(t+dur);
 }
 function percNoise(dur, vol=0.35) {
-  const ctx=getCtx(); if(!ctx) return;
+  const ctx=getCtx(); if(!ctx||ctx.state==='suspended') return;
   const sr=ctx.sampleRate;
   const buf=ctx.createBuffer(1, Math.floor(sr*dur), sr);
   const d=buf.getChannelData(0);
