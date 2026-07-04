@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -138,6 +138,20 @@
       border-color: #e8c34a; color: #1a1a1a; transform: scale(0.96);
       box-shadow: 0 0 16px rgba(232,195,74,.5), inset 0 1px 0 rgba(255,255,255,.3);
     }
+
+    /* ── Bet amount stepper ──────────────────────────────────────── */
+    .bet-adjust-row {
+      display:flex; align-items:center; gap:18px;
+    }
+    .bet-adj-btn {
+      width:48px; height:48px; border-radius:50%; flex-shrink:0;
+      background:rgba(255,255,255,.1); border:1.5px solid rgba(255,255,255,.2);
+      color:white; font-size:18px; font-weight:900; cursor:pointer;
+      display:flex; align-items:center; justify-content:center;
+      transition:background .12s, transform .1s;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
+    }
+    .bet-adj-btn:active { background:rgba(255,255,255,.2); transform:scale(.9); }
 
     /* shimmer sweep */
     @keyframes shimmer {
@@ -301,7 +315,11 @@
       border-top: 1px solid rgba(255,255,255,0.07);
       flex-shrink: 0;
     }
-    .btn-row { display: grid; gap: 10px; }
+    .btn-row {
+      display: grid; gap: 10px;
+      min-height: 88px;
+      align-items: stretch;
+    }
     .btn-row.c2 { grid-template-columns: 1fr 1fr; }
     .btn-row.c3 { grid-template-columns: 1fr 1fr 1fr; }
 
@@ -310,10 +328,14 @@
       padding: 15px 8px; font-size: 14px; font-weight: 800;
       letter-spacing: 1.5px; text-transform: uppercase;
       color: white; cursor: pointer;
-      transition: transform .1s, box-shadow .1s;
+      transition: transform .24s cubic-bezier(.22,1,.36,1), box-shadow .1s, opacity .2s ease;
       display: flex; flex-direction: column; align-items: center; gap: 3px;
       position: relative; overflow: hidden;
+      opacity: 0;
+      transform: translateY(8px) scale(.98);
+      pointer-events: none;
     }
+    .btn-row.live .g-btn { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
     .g-btn::before {
       content: ''; position: absolute; inset: 0;
       background: linear-gradient(180deg, rgba(255,255,255,.14) 0%, transparent 60%);
@@ -478,6 +500,25 @@
     /* ── Particles canvas ────────────────────────────────────────── */
     #particles { position:absolute; inset:0; pointer-events:none; z-index:55; display:none; }
 
+    /* ── Chip animation layer ───────────────────────────────────────── */
+    #chip-layer { position:absolute; inset:0; pointer-events:none; z-index:38; overflow:hidden; }
+    .a-chip {
+      position:absolute; width:44px; height:44px; border-radius:50%;
+      display:flex; flex-direction:column; align-items:center; justify-content:center; gap:1px;
+      color:#fff;
+      /* Layered concentric rings: inner glow, main body, outer rim ×2, drop shadow */
+      box-shadow:
+        inset 0 2px 5px rgba(255,255,255,.22),
+        inset 0 -2px 5px rgba(0,0,0,.4),
+        0 0 0 3px var(--ce,#888),
+        0 0 0 5px rgba(0,0,0,.5),
+        0 0 0 7px var(--ce,#888),
+        0 7px 22px rgba(0,0,0,.9);
+      will-change:transform,opacity;
+    }
+    .a-chip-sym { font-size:7px; font-weight:700; line-height:1; opacity:.7; }
+    .a-chip-val { font-size:11px; font-weight:900; line-height:1; letter-spacing:-0.5px; text-shadow:0 1px 3px rgba(0,0,0,.6); }
+
     /* ── Floating chip delta ─────────────────────────────────────── */
     @keyframes floatUp {
       0%   { opacity:1; transform:translateY(0) scale(1); }
@@ -546,7 +587,7 @@
   <!-- ─── Header ─────────────────────────────────────── -->
   <header class="hdr">
     <span class="logo">Blackjack</span>
-    <div class="chips-pill">
+    <div class="chips-pill" id="chips-pill">
       <span class="coin">🪙</span>
       <span class="chips-val" id="hdr-chips">$500</span>
     </div>
@@ -555,7 +596,11 @@
   <!-- ─── Bet Screen ─────────────────────────────────── -->
   <div id="bet-screen" class="screen on">
     <p class="bet-label">Place Your Bet</p>
-    <div class="bet-number"><sup>$</sup><span id="bet-val">25</span></div>
+    <div class="bet-adjust-row">
+      <button class="bet-adj-btn" onclick="adjustBet(-25)">−</button>
+      <div class="bet-number"><sup>$</sup><span id="bet-val">25</span></div>
+      <button class="bet-adj-btn" onclick="adjustBet(25)">+</button>
+    </div>
 
     <div class="chip-grid">
       <button class="chip-btn"     onclick="qBet(5,this)">$5</button>
@@ -584,8 +629,11 @@
 
       <!-- Centre divider -->
       <div class="divider-row">
-        <span class="bet-badge">Bet&nbsp;$<span id="cur-bet">0</span></span>
+        <span class="bet-badge" id="bet-badge">Bet&nbsp;$<span id="cur-bet">0</span></span>
       </div>
+
+      <!-- Chip landing zone (just below the divider, player side) -->
+      <div id="chip-drop" style="height:0;flex-shrink:0;"></div>
 
       <!-- Player hand -->
       <div class="hand-zone" id="p-zone">
@@ -627,6 +675,9 @@
     <button class="go-btn" onclick="restart()">PLAY AGAIN</button>
   </div>
 
+  <!-- ─── Chip animation layer ──────────────────────────── -->
+  <div id="chip-layer"></div>
+
   <!-- ─── Particles ───────────────────────────────────── -->
   <canvas id="particles"></canvas>
 
@@ -657,6 +708,7 @@ let phase  = 'bet';
 let stats  = { w:0, l:0, p:0, h:0 };
 let holeCardEl = null; // reference to the flippable hole-card element
 let _swipeX = 0, _swipeY = 0, _hintShown = false;
+let tableChips = []; // chip DOM elements currently on the table
 
 // ── Audio Engine (Web Audio API — no files needed) ───────────────
 let _ctx = null;
@@ -761,7 +813,95 @@ function burst(type) {
   })();
 }
 
-// ── Deck helpers ─────────────────────────────────────────────────
+// ── Chip animation ────────────────────────────────────────────────────────
+const CHIP_SPECS = [
+  { val:100, bg:'#212121', edge:'#bdbdbd' },
+  { val: 50, bg:'#1a237e', edge:'#5c6bc0' },
+  { val: 25, bg:'#1b5e20', edge:'#66bb6a' },
+  { val:  5, bg:'#b71c1c', edge:'#ef5350' },
+];
+function chipsFor(amount) {
+  const out=[]; let r=amount;
+  for(const c of CHIP_SPECS){ while(r>=c.val&&out.length<5){out.push(c);r-=c.val;} }
+  return out;
+}
+function relCtr(el) {
+  const a=$('app').getBoundingClientRect(), e=el.getBoundingClientRect();
+  return { x:e.left-a.left+e.width/2, y:e.top-a.top+e.height/2 };
+}
+function _spawnChip(spec, bx, by) {
+  const el=document.createElement('div');
+  el.className='a-chip';
+  el.style.cssText=`background:${spec.bg};--ce:${spec.edge};left:${bx}px;top:${by}px;opacity:0;`;
+  el.innerHTML=`<span class="a-chip-sym">$</span><span class="a-chip-val">${spec.val}</span>`;
+  el.dataset.bx=bx; el.dataset.by=by;
+  $('chip-layer').appendChild(el);
+  return el;
+}
+function slideChipsToTable() {
+  tableChips.forEach(e=>e.remove()); tableChips=[];
+  const HALF=22, from=relCtr($('chips-pill')), to=relCtr($('chip-drop'));
+  chipsFor(curBet).forEach((spec,i)=>{
+    const el=_spawnChip(spec, from.x-HALF, from.y-HALF);
+    tableChips.push(el);
+    const tx=to.x-HALF+i*5, ty=to.y+38-HALF-i*6;
+    setTimeout(()=>{
+      el.style.opacity='1';
+      el.style.transition='transform 1.5s cubic-bezier(0.22,1,0.36,1),opacity 0.22s';
+      el.style.transform=`translate(${tx-(from.x-HALF)}px,${ty-(from.y-HALF)}px)`;
+      el.addEventListener('transitionend', function h(e){
+        if(e.propertyName!=='transform') return;
+        el.removeEventListener('transitionend',h);
+        if(!tableChips.includes(el)) return; // already being cleared
+        el.style.transition='none'; el.style.transform='none';
+        el.style.left=tx+'px'; el.style.top=ty+'px';
+        el.dataset.bx=tx; el.dataset.by=ty;
+      });
+    }, i*140+16);
+  });
+}
+function addOneChipToTable(amount, xOffset=0) {
+  const HALF=22, from=relCtr($('chips-pill')), to=relCtr($('chip-drop'));
+  chipsFor(amount).slice(0,2).forEach((spec,i)=>{
+    const el=_spawnChip(spec, from.x-HALF, from.y-HALF);
+    tableChips.push(el);
+    const tx=to.x-HALF+xOffset+i*5, ty=to.y+38-HALF-i*6;
+    setTimeout(()=>{
+      el.style.opacity='1';
+      el.style.transition='transform 1.5s cubic-bezier(0.22,1,0.36,1),opacity 0.22s';
+      el.style.transform=`translate(${tx-(from.x-HALF)}px,${ty-(from.y-HALF)}px)`;
+      el.addEventListener('transitionend', function h(e){
+        if(e.propertyName!=='transform') return;
+        el.removeEventListener('transitionend',h);
+        if(!tableChips.includes(el)) return; // already being cleared
+        el.style.transition='none'; el.style.transform='none';
+        el.style.left=tx+'px'; el.style.top=ty+'px';
+        el.dataset.bx=tx; el.dataset.by=ty;
+      });
+    }, i*120+16);
+  });
+}
+function clearTableChips(outcome) {
+  const chips=[...tableChips]; tableChips=[];
+  if(!chips.length) return;
+  const HALF=22, isLose=(outcome==='lose');
+  let tx, ty;
+  if(!isLose){ const p=relCtr($('chips-pill')); tx=p.x-HALF; ty=p.y-HALF; }
+  else { const a=$('app').getBoundingClientRect(); tx=a.width/2-HALF; ty=a.height+70; }
+  chips.forEach((el,i)=>{
+    const bx=parseFloat(el.dataset.bx), by=parseFloat(el.dataset.by);
+    setTimeout(()=>{
+      // Re-enable transition then force reflow so browser sees the change
+      el.style.transition='transform 0.4s cubic-bezier(0.4,0,0.2,1),opacity 0.3s';
+      void el.offsetWidth;
+      el.style.transform=`translate(${tx-bx}px,${ty-by}px) scale(${isLose?.25:1})`;
+      if(isLose) el.style.opacity='0';
+    }, i*55+8);
+    setTimeout(()=>el.remove(), 800+i*55);
+  });
+}
+
+// ── Deck helpers ─────────────────────────────────────────────────────────────
 function buildDeck() {
   deck = [];
   for (const s of SUITS) for (const f of FACES) deck.push({ f, s });
@@ -847,6 +987,7 @@ function refreshD(full) {
 
 function setActions(canDouble) {
   const row=$('btn-row');
+  row.classList.remove('live');
   if(canDouble){
     row.className='btn-row c3';
     row.innerHTML=
@@ -859,8 +1000,16 @@ function setActions(canDouble) {
       `<button class="g-btn hit"   onclick="doHit()"><span class="ico">👆</span>HIT</button>`+
       `<button class="g-btn stand" onclick="doStand()"><span class="ico">✋</span>STAND</button>`;
   }
+  requestAnimationFrame(()=>row.classList.add('live'));
 }
-function clearActions() { $('btn-row').innerHTML=''; }
+function clearActions() {
+  const row=$('btn-row');
+  row.classList.remove('live');
+  row.className='btn-row c2';
+  row.innerHTML=
+    `<button class="g-btn hit"   tabindex="-1" aria-hidden="true"><span class="ico">👆</span>HIT</button>`+
+    `<button class="g-btn stand" tabindex="-1" aria-hidden="true"><span class="ico">✋</span>STAND</button>`;
+}
 
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
@@ -964,6 +1113,18 @@ function qBetMax(btn) {
   document.querySelectorAll('.chip-btn').forEach(b=>b.classList.remove('sel'));
   btn.classList.add('sel');
 }
+function adjustBet(delta) {
+  sndClick();
+  let nb = Math.round((pendingBet + delta) / 25) * 25;
+  nb = Math.max(25, Math.min(chips, nb));
+  pendingBet = nb;
+  $('bet-val').textContent = pendingBet;
+  // keep preset button highlighted if it matches, otherwise clear all
+  document.querySelectorAll('.chip-btn').forEach(b => {
+    const v = parseInt(b.textContent.replace(/[^\d]/g,''));
+    b.classList.toggle('sel', v === pendingBet);
+  });
+}
 
 // ── Deal ─────────────────────────────────────────────────────────
 function deal() {
@@ -980,6 +1141,7 @@ function deal() {
   showScreen('game-screen');
   clearCards(); clearActions();
   refreshD(false); refreshP();
+  requestAnimationFrame(()=>slideChipsToTable());
 
   const T=220;
   setTimeout(()=>{ sndDeal(); addCard('p-cards',pHand[0]); },       0*T);
@@ -1004,16 +1166,16 @@ function afterDeal() {
       stats.h++;
       if(pv===21&&dv===21){
         chips+=curBet; stats.p++;
-        updateHdr(); updateStats(); sndPush(); addHistoryDot('p');
+        updateHdr(); updateStats(); sndPush(); addHistoryDot('p'); clearTableChips('push');
         setTimeout(()=>showResult('PUSH','push','Both have Blackjack','Bet returned','neu'),650);
       } else if(pv===21){
         const profit=Math.floor(curBet*1.5);
         chips+=curBet+profit; stats.w++;
-        updateHdr(); updateStats(); sndBlackjack(); floatDelta(profit); addHistoryDot('w');
+        updateHdr(); updateStats(); sndBlackjack(); floatDelta(profit); addHistoryDot('w'); clearTableChips('win');
         glowCards('p-cards',true);
         setTimeout(()=>{ burst('blackjack'); showResult('BLACKJACK!','win','Natural 21 — 3:2 payout','+$'+profit,'pos'); },380);
       } else {
-        stats.l++; updateStats(); sndLose(); floatDelta(-curBet); addHistoryDot('l');
+        stats.l++; updateStats(); sndLose(); floatDelta(-curBet); addHistoryDot('l'); clearTableChips('lose');
         setTimeout(()=>showResult('DEALER WINS','lose','Dealer has Blackjack','-$'+curBet,'neg'),650);
       }
     },520); // wait for flip animation
@@ -1033,7 +1195,7 @@ function doHit() {
   const v=hv(pHand);
   if(v>21){
     phase='done'; clearActions(); setTurn(null);
-    shakeBust(); sndBust();
+    shakeBust(); sndBust(); clearTableChips('lose');
     stats.h++; stats.l++; updateStats(); floatDelta(-curBet); addHistoryDot('l');
     setTimeout(()=>showResult('BUST','lose','Over 21','-$'+curBet,'neg'),620);
     return;
@@ -1050,14 +1212,16 @@ function doStand() {
 function doDouble() {
   if(phase!=='playing'||chips<curBet) return;
   sndChip();
+  const origBet=curBet;
   chips-=curBet; curBet*=2;
   $('cur-bet').textContent=curBet; updateHdr();
+  addOneChipToTable(origBet, 52);
   sndDeal();
   pHand.push(pop()); addCard('p-cards',pHand.at(-1)); refreshP(); clearActions(); setTurn(null);
   phase='done';
   const v=hv(pHand);
   if(v>21){
-    shakeBust(); sndBust();
+    shakeBust(); sndBust(); clearTableChips('lose');
     stats.h++; stats.l++; updateStats(); floatDelta(-curBet); addHistoryDot('l');
     setTimeout(()=>showResult('BUST','lose','Doubled — over 21','-$'+curBet,'neg'),620);
     return;
@@ -1112,6 +1276,8 @@ function resolveRound() {
   }
 
   updateHdr(); updateStats();
+  // chip animation — slides chips back to counter (win/push) or off-screen (lose)
+  clearTableChips(cls);
   // floating delta & history dot
   if(cls==='win')      { floatDelta(curBet); addHistoryDot('w'); }
   else if(cls==='push'){ addHistoryDot('p'); }
@@ -1125,6 +1291,7 @@ function resolveRound() {
 // ── Navigation ───────────────────────────────────────────────────
 function nextHand() {
   $('overlay').classList.remove('on');
+  tableChips.forEach(e=>e.remove()); tableChips=[];
   phase='bet';
   if(chips<=0){ showScreen('go-screen'); return; }
   pendingBet=Math.min(pendingBet,chips);
