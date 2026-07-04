@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#143a14">
+  <title>Blackjack</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: #0b2a0b;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    /* ── App shell ─────────────────────────────────────────── */
+    #app {
+      width: 100%; max-width: 480px; height: 100vh;
+      margin: 0 auto;
+      display: flex; flex-direction: column;
+      background: radial-gradient(ellipse 130% 90% at 50% 35%,
+        #2e7d2e 0%, #1b5c1b 45%, #0f3b0f 100%);
+      position: relative; overflow: hidden;
+    }
+    /* felt grain */
+    #app::after {
+      content: '';
+      position: absolute; inset: 0; pointer-events: none; z-index: 0;
+      background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='1' height='1' fill='rgba(255,255,255,0.035)'/%3E%3C/svg%3E");
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+    .hdr {
+      position: relative; z-index: 10; flex-shrink: 0;
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 20px;
+      padding-top: max(env(safe-area-inset-top, 0px), 12px);
+      background: rgba(0,0,0,0.38);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .logo {
+      font-size: 18px; font-weight: 900; letter-spacing: 4px;
+      color: #c9a227; text-transform: uppercase;
+      text-shadow: 0 0 18px rgba(201,162,39,.45);
+    }
+    .chips-pill {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(0,0,0,0.48);
+      border: 1.5px solid #c9a227;
+      border-radius: 100px; padding: 5px 14px;
+    }
+    .chips-pill .coin { font-size: 14px; }
+    .chips-val { font-size: 15px; font-weight: 700; color: #e8c34a; }
+
+    /* ── Screens ─────────────────────────────────────────────── */
+    .screen { flex: 1; display: none; flex-direction: column; position: relative; z-index: 1; overflow: hidden; }
+    .screen.on { display: flex; }
+
+    /* ── Bet Screen ─────────────────────────────────────────── */
+    #bet-screen {
+      align-items: center; justify-content: center;
+      gap: 22px; padding: 24px 20px;
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 24px);
+    }
+
+    .bet-label {
+      font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+      color: rgba(255,255,255,0.45);
+    }
+
+    .bet-number {
+      font-size: 76px; font-weight: 900; color: #fff; line-height: 1;
+      text-shadow: 0 4px 18px rgba(0,0,0,.45);
+    }
+    .bet-number sup { font-size: 36px; color: #c9a227; vertical-align: super; }
+
+    .chip-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 10px; width: 100%; max-width: 330px;
+    }
+    .chip-btn {
+      background: rgba(255,255,255,0.09);
+      border: 1.5px solid rgba(255,255,255,0.18);
+      border-radius: 12px; color: white;
+      font-size: 15px; font-weight: 700;
+      padding: 15px 8px; cursor: pointer;
+      transition: background .12s, transform .1s, border-color .12s;
+    }
+    .chip-btn.sel, .chip-btn:active {
+      background: #c9a227; border-color: #c9a227;
+      color: #1a1a1a; transform: scale(0.95);
+    }
+
+    .deal-btn {
+      width: 100%; max-width: 330px;
+      background: linear-gradient(158deg, #e8c34a 0%, #b8860b 100%);
+      border: none; border-radius: 16px;
+      color: #1a1a1a; font-size: 18px; font-weight: 900;
+      letter-spacing: 3px; text-transform: uppercase;
+      padding: 18px; cursor: pointer;
+      box-shadow: 0 6px 26px rgba(201,162,39,.48), 0 2px 6px rgba(0,0,0,.3);
+      transition: transform .12s, box-shadow .12s;
+    }
+    .deal-btn:active { transform: scale(0.97) translateY(1px); box-shadow: 0 3px 12px rgba(201,162,39,.3); }
+
+    /* ── Game Screen ─────────────────────────────────────────── */
+    #game-screen { justify-content: space-between; }
+
+    .table {
+      flex: 1; display: flex; flex-direction: column;
+      padding: 12px 16px 6px; gap: 6px; overflow: hidden; min-height: 0;
+    }
+
+    .hand-zone { flex: 1; display: flex; flex-direction: column; gap: 7px; min-height: 0; }
+
+    .hand-meta { display: flex; align-items: center; gap: 8px; }
+    .hand-name {
+      font-size: 10px; letter-spacing: 2.5px; text-transform: uppercase;
+      color: rgba(255,255,255,0.45); font-weight: 600;
+    }
+    .val-badge {
+      background: rgba(0,0,0,0.42);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 8px; padding: 2px 9px;
+      font-size: 13px; font-weight: 700; color: white;
+    }
+    .val-badge.bust    { background: rgba(183,28,28,.85); border-color: #ef5350; }
+    .val-badge.natural { background: rgba(27,94,32,.9);   border-color: #66bb6a; color: #a5d6a7; }
+
+    .cards-fan {
+      display: flex; align-items: flex-start; flex-wrap: nowrap;
+      overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+      padding: 4px 2px 10px; gap: 4px; min-height: 80px;
+    }
+    .cards-fan::-webkit-scrollbar { display: none; }
+
+    .divider-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 2px 0; flex-shrink: 0;
+    }
+    .divider-row::before, .divider-row::after {
+      content: ''; flex: 1; height: 1px; background: rgba(255,255,255,0.11);
+    }
+    .bet-badge {
+      font-size: 12px; font-weight: 600; color: #e8c34a;
+      background: rgba(0,0,0,0.42);
+      border: 1px solid rgba(201,162,39,.38);
+      border-radius: 20px; padding: 3px 13px;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────── */
+    .card {
+      flex-shrink: 0; width: 62px; height: 90px;
+      border-radius: 9px; position: relative;
+      box-shadow: 2px 4px 16px rgba(0,0,0,.55), 0 1px 0 rgba(0,0,0,.3);
+      animation: deal .28s cubic-bezier(.22,1,.36,1);
+    }
+    @keyframes deal {
+      from { opacity: 0; transform: translateY(-36px) scale(.82) rotate(-7deg); }
+      to   { opacity: 1; transform: translateY(0)     scale(1)    rotate(0deg); }
+    }
+
+    .card-face {
+      width: 100%; height: 100%; background: #fefefe; border-radius: 9px;
+      display: flex; flex-direction: column; justify-content: space-between;
+      padding: 5px 6px;
+    }
+    .card-back {
+      width: 100%; height: 100%;
+      background: linear-gradient(145deg, #1a237e, #283593 45%, #1a237e);
+      border-radius: 9px; border: 3px solid rgba(232,234,246,.75);
+      overflow: hidden; position: relative;
+    }
+    .card-back::after {
+      content: ''; position: absolute; inset: 5px; border-radius: 4px;
+      background: repeating-linear-gradient(
+        -45deg,
+        rgba(255,255,255,.07) 0px, rgba(255,255,255,.07) 3px,
+        transparent 3px, transparent 9px
+      );
+      border: 1px solid rgba(255,255,255,.18);
+    }
+
+    .cc { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+    .cc.bot { transform: rotate(180deg); }
+    .cc-rank { font-size: 15px; font-weight: 800; }
+    .cc-suit  { font-size: 11px; }
+    .cc-big {
+      position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%,-50%);
+      font-size: 26px; opacity: .11;
+    }
+    .card.red  .cc-rank, .card.red  .cc-suit, .card.red  .cc-big { color: #c62828; }
+    .card.blk  .cc-rank, .card.blk  .cc-suit, .card.blk  .cc-big { color: #111; }
+
+    /* ── Stats bar ───────────────────────────────────────────── */
+    .stats-bar {
+      display: flex; justify-content: space-around;
+      padding: 7px 8px; flex-shrink: 0;
+      background: rgba(0,0,0,0.24);
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+    .stat { text-align: center; }
+    .stat-v { font-size: 15px; font-weight: 700; color: white; }
+    .stat-l { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: rgba(255,255,255,0.38); }
+
+    /* ── Action bar ──────────────────────────────────────────── */
+    .action-bar {
+      padding: 10px 14px;
+      padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
+      background: rgba(0,0,0,0.32);
+      border-top: 1px solid rgba(255,255,255,0.07);
+      flex-shrink: 0;
+    }
+    .btn-row { display: grid; gap: 10px; }
+    .btn-row.c2 { grid-template-columns: 1fr 1fr; }
+    .btn-row.c3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .g-btn {
+      border: none; border-radius: 14px;
+      padding: 15px 8px; font-size: 14px; font-weight: 800;
+      letter-spacing: 1.5px; text-transform: uppercase;
+      color: white; cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,.32), 0 1px 0 rgba(255,255,255,.1) inset;
+      transition: transform .1s, box-shadow .1s;
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+    }
+    .g-btn .ico { font-size: 18px; }
+    .g-btn:active { transform: scale(.94) translateY(1px); box-shadow: 0 2px 6px rgba(0,0,0,.3); }
+    .g-btn.hit    { background: linear-gradient(158deg,#1976d2,#0d47a1); }
+    .g-btn.stand  { background: linear-gradient(158deg,#c62828,#8b0000); }
+    .g-btn.double { background: linear-gradient(158deg,#6a1b9a,#380d54); }
+
+    /* ── Result overlay ──────────────────────────────────────── */
+    #overlay {
+      position: absolute; inset: 0; z-index: 50;
+      display: none; align-items: center; justify-content: center;
+      flex-direction: column; gap: 20px; padding: 20px;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    }
+    #overlay.on { display: flex; animation: fadeIn .22s ease; }
+    @keyframes fadeIn { from { opacity:0; } to { opacity:1; } }
+
+    .res-box {
+      background: rgba(6,18,6,.96);
+      border: 1.5px solid rgba(255,255,255,.11);
+      border-radius: 24px; padding: 28px 44px; text-align: center;
+      animation: popIn .32s cubic-bezier(.34,1.56,.64,1);
+    }
+    @keyframes popIn { from { transform:scale(.6); opacity:0; } to { transform:scale(1); opacity:1; } }
+
+    .res-eye {
+      font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+      color: rgba(255,255,255,.38); margin-bottom: 6px;
+    }
+    .res-head {
+      font-size: 40px; font-weight: 900; letter-spacing: 2px; margin: 0 0 8px;
+    }
+    .res-head.win  { color:#69f0ae; text-shadow:0 0 28px rgba(105,240,174,.5); }
+    .res-head.lose { color:#ef5350; text-shadow:0 0 28px rgba(239,83,80,.5); }
+    .res-head.push { color:#e8c34a; text-shadow:0 0 28px rgba(232,195,74,.4); }
+
+    .res-delta { font-size: 22px; font-weight: 700; }
+    .res-delta.pos { color:#69f0ae; }
+    .res-delta.neg { color:#ef5350; }
+    .res-delta.neu { color:rgba(255,255,255,.45); }
+
+    .next-btn {
+      width: 100%; max-width: 280px;
+      background: linear-gradient(158deg, #e8c34a, #b8860b);
+      border: none; border-radius: 14px; color: #1a1a1a;
+      font-size: 16px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase;
+      padding: 17px; cursor: pointer;
+      box-shadow: 0 6px 24px rgba(201,162,39,.44);
+      transition: transform .12s;
+    }
+    .next-btn:active { transform: scale(.96); }
+
+    /* ── Game-Over screen ────────────────────────────────────── */
+    #go-screen {
+      align-items: center; justify-content: center;
+      gap: 18px; padding: 24px; text-align: center;
+    }
+    .go-emoji { font-size: 60px; }
+    .go-title { font-size: 34px; font-weight: 900; color: #c9a227; }
+    .go-sub   { color: rgba(255,255,255,.55); font-size: 15px; }
+    .go-btn {
+      background: linear-gradient(158deg,#e8c34a,#b8860b);
+      border: none; border-radius: 14px; color: #1a1a1a;
+      font-size: 16px; font-weight: 900; letter-spacing: 2px; text-transform: uppercase;
+      padding: 18px 56px; cursor: pointer;
+      box-shadow: 0 6px 24px rgba(201,162,39,.44);
+      transition: transform .12s;
+    }
+    .go-btn:active { transform: scale(.96); }
+
+    /* ── Responsive ──────────────────────────────────────────── */
+    @media (max-height: 680px) {
+      .card { width: 54px; height: 78px; }
+      .cc-rank { font-size: 13px; }
+      .cc-big  { font-size: 22px; }
+      .g-btn   { padding: 12px 6px; font-size: 12px; }
+      .bet-number { font-size: 58px; }
+    }
+    @media (max-height: 580px) {
+      .card { width: 46px; height: 66px; }
+      .cc-big { font-size: 18px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ─── Header ─────────────────────────────────────── -->
+  <header class="hdr">
+    <span class="logo">Blackjack</span>
+    <div class="chips-pill">
+      <span class="coin">🪙</span>
+      <span class="chips-val" id="hdr-chips">$500</span>
+    </div>
+  </header>
+
+  <!-- ─── Bet Screen ─────────────────────────────────── -->
+  <div id="bet-screen" class="screen on">
+    <p class="bet-label">Place Your Bet</p>
+    <div class="bet-number"><sup>$</sup><span id="bet-val">25</span></div>
+
+    <div class="chip-grid">
+      <button class="chip-btn"     onclick="qBet(5,this)">$5</button>
+      <button class="chip-btn sel" onclick="qBet(25,this)">$25</button>
+      <button class="chip-btn"     onclick="qBet(50,this)">$50</button>
+      <button class="chip-btn"     onclick="qBet(100,this)">$100</button>
+      <button class="chip-btn"     onclick="qBet(250,this)">$250</button>
+      <button class="chip-btn"     onclick="qBetMax(this)">MAX</button>
+    </div>
+
+    <button class="deal-btn" onclick="deal()">DEAL</button>
+  </div>
+
+  <!-- ─── Game Screen ────────────────────────────────── -->
+  <div id="game-screen" class="screen">
+    <div class="table">
+
+      <!-- Dealer hand -->
+      <div class="hand-zone">
+        <div class="hand-meta">
+          <span class="hand-name">Dealer</span>
+          <span class="val-badge" id="d-val">?</span>
+        </div>
+        <div class="cards-fan" id="d-cards"></div>
+      </div>
+
+      <!-- Centre divider -->
+      <div class="divider-row">
+        <span class="bet-badge">Bet&nbsp;$<span id="cur-bet">0</span></span>
+      </div>
+
+      <!-- Player hand -->
+      <div class="hand-zone">
+        <div class="hand-meta">
+          <span class="hand-name">You</span>
+          <span class="val-badge" id="p-val">0</span>
+        </div>
+        <div class="cards-fan" id="p-cards"></div>
+      </div>
+
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat"><div class="stat-v" id="sw">0</div><div class="stat-l">Wins</div></div>
+      <div class="stat"><div class="stat-v" id="sl">0</div><div class="stat-l">Losses</div></div>
+      <div class="stat"><div class="stat-v" id="sp">0</div><div class="stat-l">Pushes</div></div>
+      <div class="stat"><div class="stat-v" id="sh">0</div><div class="stat-l">Hands</div></div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="action-bar">
+      <div class="btn-row c2" id="btn-row">
+        <button class="g-btn hit"   onclick="doHit()"><span class="ico">👆</span>HIT</button>
+        <button class="g-btn stand" onclick="doStand()"><span class="ico">✋</span>STAND</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Game-Over Screen ───────────────────────────── -->
+  <div id="go-screen" class="screen">
+    <div class="go-emoji">💸</div>
+    <div class="go-title">Out of Chips!</div>
+    <p class="go-sub">Better luck next time.</p>
+    <button class="go-btn" onclick="restart()">PLAY AGAIN</button>
+  </div>
+
+  <!-- ─── Result Overlay ─────────────────────────────── -->
+  <div id="overlay">
+    <div class="res-box">
+      <div class="res-eye"   id="r-eye"></div>
+      <h2  class="res-head"  id="r-head"></h2>
+      <div class="res-delta" id="r-delta"></div>
+    </div>
+    <button class="next-btn" onclick="nextHand()">NEXT HAND</button>
+  </div>
+
+</div>
+<script>
+// ================================================================
+//  BLACKJACK — engine + UI
+// ================================================================
+const FACES = ['A','2','3','4','5','6','7','8','9','10','J','Q','K'];
+const SUITS = ['♣','♦','♥','♠'];
+const RED   = new Set(['♦','♥']);
+
+// ── State ────────────────────────────────────────────────────────
+let deck   = [], pHand = [], dHand = [];
+let chips  = 500;
+let curBet = 0, pendingBet = 25;
+let phase  = 'bet'; // 'bet' | 'playing' | 'done'
+let stats  = { w:0, l:0, p:0, h:0 };
+
+// ── Deck helpers ─────────────────────────────────────────────────
+function buildDeck() {
+  deck = [];
+  for (const s of SUITS) for (const f of FACES) deck.push({ f, s });
+}
+function shuffle() {
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+}
+const pop = () => deck.pop();
+
+// ── Hand value ───────────────────────────────────────────────────
+function fv(f) {
+  if (f === 'A') return 11;
+  if ('JQK'.includes(f)) return 10;
+  return +f;
+}
+function hv(hand) {
+  let t = 0, a = 0;
+  for (const c of hand) { t += fv(c.f); if (c.f === 'A') a++; }
+  while (t > 21 && a--) t -= 10;
+  return t;
+}
+function isSoft(hand) {
+  if (!hand.some(c => c.f === 'A')) return false;
+  let h = 0;
+  for (const c of hand) h += c.f === 'A' ? 1 : fv(c.f);
+  return h + 10 <= 21;
+}
+
+// ── Card element ─────────────────────────────────────────────────
+function makeCard(card, faceDown = false) {
+  const el = document.createElement('div');
+  if (faceDown) {
+    el.className = 'card';
+    const back = document.createElement('div');
+    back.className = 'card-back';
+    el.appendChild(back);
+    return el;
+  }
+  el.className = 'card ' + (RED.has(card.s) ? 'red' : 'blk');
+  const face = document.createElement('div');
+  face.className = 'card-face';
+  face.innerHTML =
+    `<div class="cc"><div class="cc-rank">${card.f}</div><div class="cc-suit">${card.s}</div></div>` +
+    `<div class="cc-big">${card.s}</div>` +
+    `<div class="cc bot"><div class="cc-rank">${card.f}</div><div class="cc-suit">${card.s}</div></div>`;
+  el.appendChild(face);
+  return el;
+}
+
+// ── DOM helpers ──────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+
+function addCard(containerId, card, faceDown = false) {
+  $(containerId).appendChild(makeCard(card, faceDown));
+}
+
+function clearCards() {
+  $('p-cards').innerHTML = '';
+  $('d-cards').innerHTML = '';
+}
+
+function revealHole() {
+  const dc = $('d-cards');
+  dc.lastChild?.remove();
+  addCard('d-cards', dHand[1]);
+}
+
+function setBadge(id, val, isNat) {
+  const el = $(id);
+  el.textContent = val;
+  el.className = 'val-badge' + (val > 21 ? ' bust' : isNat ? ' natural' : '');
+}
+
+function refreshP() {
+  const v = hv(pHand);
+  setBadge('p-val', v, v === 21 && pHand.length === 2);
+}
+
+function refreshD(full) {
+  if (!full) { $('d-val').textContent = '?'; $('d-val').className = 'val-badge'; return; }
+  const v = hv(dHand);
+  setBadge('d-val', v, v === 21 && dHand.length === 2);
+}
+
+function setActions(canDouble) {
+  const row = $('btn-row');
+  if (canDouble) {
+    row.className = 'btn-row c3';
+    row.innerHTML =
+      `<button class="g-btn hit"    onclick="doHit()"><span class="ico">👆</span>HIT</button>` +
+      `<button class="g-btn stand"  onclick="doStand()"><span class="ico">✋</span>STAND</button>` +
+      `<button class="g-btn double" onclick="doDouble()"><span class="ico">✌️</span>DOUBLE</button>`;
+  } else {
+    row.className = 'btn-row c2';
+    row.innerHTML =
+      `<button class="g-btn hit"   onclick="doHit()"><span class="ico">👆</span>HIT</button>` +
+      `<button class="g-btn stand" onclick="doStand()"><span class="ico">✋</span>STAND</button>`;
+  }
+}
+
+function clearActions() { $('btn-row').innerHTML = ''; }
+
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  $(id).classList.add('on');
+}
+
+function showResult(head, cls, eye, delta, dc) {
+  $('r-head').textContent  = head;
+  $('r-head').className    = 'res-head ' + cls;
+  $('r-eye').textContent   = eye;
+  $('r-delta').textContent = delta;
+  $('r-delta').className   = 'res-delta ' + dc;
+  $('overlay').classList.add('on');
+}
+
+function updateHdr()  { $('hdr-chips').textContent = '$' + chips; }
+function updateStats(){ $('sw').textContent=stats.w; $('sl').textContent=stats.l; $('sp').textContent=stats.p; $('sh').textContent=stats.h; }
+
+// ── Bet screen ───────────────────────────────────────────────────
+function qBet(n, btn) {
+  pendingBet = Math.min(n, chips);
+  $('bet-val').textContent = pendingBet;
+  document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+
+function qBetMax(btn) {
+  pendingBet = chips;
+  $('bet-val').textContent = chips;
+  document.querySelectorAll('.chip-btn').forEach(b => b.classList.remove('sel'));
+  btn.classList.add('sel');
+}
+
+// ── Deal ─────────────────────────────────────────────────────────
+function deal() {
+  if (pendingBet < 1 || pendingBet > chips) return;
+
+  buildDeck(); shuffle();
+  chips -= pendingBet;
+  curBet = pendingBet;
+  pHand = []; dHand = [];
+
+  // Deal order: p1 d1 p2 d2(hole)
+  pHand.push(pop()); dHand.push(pop());
+  pHand.push(pop()); dHand.push(pop());
+
+  $('cur-bet').textContent = curBet;
+  updateHdr();
+  showScreen('game-screen');
+  clearCards();
+  clearActions();
+  refreshD(false);
+  refreshP();
+
+  const T = 220;
+  setTimeout(() => addCard('p-cards', pHand[0]),       0 * T);
+  setTimeout(() => addCard('d-cards', dHand[0]),       1 * T);
+  setTimeout(() => addCard('p-cards', pHand[1]),       2 * T);
+  setTimeout(() => addCard('d-cards', null, true),     3 * T);
+  setTimeout(() => afterDeal(), 3 * T + 360);
+}
+
+function afterDeal() {
+  refreshP();
+  const pv = hv(pHand), dv = hv(dHand);
+
+  if (pv === 21 || dv === 21) {
+    revealHole(); refreshD(true);
+    stats.h++;
+    if (pv === 21 && dv === 21) {
+      chips += curBet; stats.p++;
+      updateHdr();
+      showResult('PUSH','push','Both have Blackjack','Bet returned','neu');
+    } else if (pv === 21) {
+      const profit = Math.floor(curBet * 1.5);
+      chips += curBet + profit; stats.w++;
+      updateHdr();
+      showResult('BLACKJACK!','win','Natural 21 — 3:2 payout','+$'+profit,'pos');
+    } else {
+      stats.l++;
+      showResult('DEALER WINS','lose','Dealer has Blackjack','-$'+curBet,'neg');
+    }
+    updateStats(); return;
+  }
+
+  setActions(chips >= curBet);
+  phase = 'playing';
+}
+
+// ── Player actions ───────────────────────────────────────────────
+function doHit() {
+  if (phase !== 'playing') return;
+  pHand.push(pop());
+  addCard('p-cards', pHand.at(-1));
+  refreshP();
+
+  const v = hv(pHand);
+  if (v > 21) {
+    phase = 'done'; clearActions();
+    stats.h++; stats.l++; updateStats();
+    setTimeout(() => showResult('BUST','lose','Over 21','-$'+curBet,'neg'), 280);
+    return;
+  }
+  if (v === 21) { setTimeout(() => doStand(), 380); return; }
+  setActions(false); // double no longer available after a hit
+}
+
+function doStand() {
+  if (phase !== 'playing') return;
+  phase = 'done'; clearActions(); runDealer();
+}
+
+function doDouble() {
+  if (phase !== 'playing' || chips < curBet) return;
+  chips -= curBet; curBet *= 2;
+  $('cur-bet').textContent = curBet; updateHdr();
+
+  pHand.push(pop());
+  addCard('p-cards', pHand.at(-1));
+  refreshP(); clearActions();
+  phase = 'done';
+
+  const v = hv(pHand);
+  if (v > 21) {
+    stats.h++; stats.l++; updateStats();
+    setTimeout(() => showResult('BUST','lose','Doubled — over 21','-$'+curBet,'neg'), 280);
+    return;
+  }
+  setTimeout(() => runDealer(), 500);
+}
+
+// ── Dealer play ──────────────────────────────────────────────────
+function runDealer() {
+  revealHole(); refreshD(true);
+
+  function step() {
+    const dv = hv(dHand);
+    if (dv < 17 || (dv === 17 && isSoft(dHand))) {
+      setTimeout(() => {
+        dHand.push(pop());
+        addCard('d-cards', dHand.at(-1));
+        refreshD(true); step();
+      }, 560);
+    } else {
+      setTimeout(resolveRound, 400);
+    }
+  }
+  setTimeout(step, 420);
+}
+
+function resolveRound() {
+  const pv = hv(pHand), dv = hv(dHand);
+  stats.h++;
+
+  if (dv > 21) {
+    chips += curBet * 2; stats.w++;
+    showResult('YOU WIN!','win','Dealer busted','+$'+curBet,'pos');
+  } else if (pv > dv) {
+    chips += curBet * 2; stats.w++;
+    showResult('YOU WIN!','win', pv+' vs '+dv,'+$'+curBet,'pos');
+  } else if (pv === dv) {
+    chips += curBet; stats.p++;
+    showResult('PUSH','push','Both '+pv,'Bet returned','neu');
+  } else {
+    stats.l++;
+    showResult('DEALER WINS','lose', dv+' vs '+pv,'-$'+curBet,'neg');
+  }
+
+  updateHdr(); updateStats();
+}
+
+// ── Navigation ───────────────────────────────────────────────────
+function nextHand() {
+  $('overlay').classList.remove('on');
+  phase = 'bet';
+
+  if (chips <= 0) { showScreen('go-screen'); return; }
+
+  pendingBet = Math.min(pendingBet, chips);
+  $('bet-val').textContent = pendingBet;
+  showScreen('bet-screen');
+}
+
+function restart() {
+  chips = 500; pendingBet = 25;
+  stats = { w:0, l:0, p:0, h:0 };
+  updateHdr(); updateStats();
+  $('bet-val').textContent = 25;
+  phase = 'bet';
+  showScreen('bet-screen');
+}
+
+// Init
+updateHdr(); updateStats();
+</script>
+</body>
+</html>
