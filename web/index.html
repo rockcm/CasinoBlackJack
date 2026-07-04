@@ -123,20 +123,22 @@
       gap: 10px; width: 100%; max-width: 330px;
     }
     .chip-btn {
-      background: rgba(255,255,255,0.07);
-      border: 1.5px solid rgba(255,255,255,0.14);
-      border-radius: 14px; color: rgba(255,255,255,.85);
+      background: linear-gradient(165deg, rgba(255,255,255,.16), rgba(255,255,255,.04));
+      border: 1.5px solid rgba(255,255,255,0.18);
+      border-radius: 14px; color: rgba(255,255,255,.9);
       font-size: 15px; font-weight: 700;
       padding: 15px 8px; cursor: pointer;
-      backdrop-filter: blur(4px);
-      transition: background .14s, transform .1s, border-color .14s, box-shadow .14s;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      transition: background .16s, transform .16s cubic-bezier(.22,1,.36,1), border-color .16s, box-shadow .16s;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 6px 18px rgba(0,0,0,.26);
+      text-shadow: 0 0 10px rgba(255,255,255,.14);
     }
-    .chip-btn:active { background: rgba(255,255,255,.12); transform: scale(0.96); }
+    .chip-btn:active { background: rgba(255,255,255,.2); transform: scale(0.96) translateY(1px); }
     .chip-btn.sel {
       background: linear-gradient(158deg, #e8c34a, #b8860b);
       border-color: #e8c34a; color: #1a1a1a; transform: scale(0.96);
-      box-shadow: 0 0 16px rgba(232,195,74,.5), inset 0 1px 0 rgba(255,255,255,.3);
+      box-shadow: 0 0 18px rgba(232,195,74,.6), 0 0 36px rgba(232,195,74,.24), inset 0 1px 0 rgba(255,255,255,.3);
     }
 
     /* ── Bet amount stepper ──────────────────────────────────────── */
@@ -145,18 +147,28 @@
     }
     .bet-adj-btn {
       width:48px; height:48px; border-radius:50%; flex-shrink:0;
-      background:rgba(255,255,255,.1); border:1.5px solid rgba(255,255,255,.2);
+      background:radial-gradient(circle at 30% 28%, rgba(255,255,255,.22), rgba(255,255,255,.07) 60%, rgba(255,255,255,.04));
+      border:1.5px solid rgba(255,255,255,.26);
       color:white; font-size:18px; font-weight:900; cursor:pointer;
       display:flex; align-items:center; justify-content:center;
-      transition:background .12s, transform .1s;
-      box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
+      transition:background .14s, transform .14s cubic-bezier(.22,1,.36,1), box-shadow .14s;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.22), 0 8px 16px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.04);
+      text-shadow: 0 0 10px rgba(255,255,255,.35);
     }
-    .bet-adj-btn:active { background:rgba(255,255,255,.2); transform:scale(.9); }
+    .bet-adj-btn:active {
+      background:rgba(255,255,255,.22);
+      transform:scale(.9);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.2), 0 2px 8px rgba(0,0,0,.24), 0 0 14px rgba(232,195,74,.35);
+    }
 
     /* shimmer sweep */
     @keyframes shimmer {
       0%   { left: -80%; }
       100% { left: 140%; }
+    }
+    @keyframes goldPulse {
+      0%,100% { box-shadow: 0 6px 30px rgba(201,162,39,.55), 0 0 60px rgba(201,162,39,.15), 0 2px 6px rgba(0,0,0,.35); }
+      50%     { box-shadow: 0 10px 36px rgba(201,162,39,.72), 0 0 85px rgba(232,195,74,.35), 0 2px 6px rgba(0,0,0,.35); }
     }
     .deal-btn {
       width: 100%; max-width: 330px; position: relative; overflow: hidden;
@@ -167,6 +179,7 @@
       padding: 18px; cursor: pointer;
       box-shadow: 0 6px 30px rgba(201,162,39,.55), 0 0 60px rgba(201,162,39,.15), 0 2px 6px rgba(0,0,0,.35);
       transition: transform .12s, box-shadow .12s;
+      animation: goldPulse 2.3s ease-in-out infinite;
     }
     .deal-btn::after {
       content: ''; position: absolute; top: 0; width: 60%; height: 100%;
@@ -334,6 +347,7 @@
       opacity: 0;
       transform: translateY(8px) scale(.98);
       pointer-events: none;
+      text-shadow: 0 0 8px rgba(255,255,255,.18);
     }
     .btn-row.live .g-btn { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
     .g-btn::before {
@@ -341,21 +355,45 @@
       background: linear-gradient(180deg, rgba(255,255,255,.14) 0%, transparent 60%);
       border-radius: inherit;
     }
+    .g-btn::after {
+      content: '';
+      position: absolute;
+      left: -65%; top: 0;
+      width: 58%; height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.2), transparent);
+      animation: shimmer 2.9s ease-in-out infinite;
+      pointer-events: none;
+    }
     .g-btn .ico { font-size: 18px; position: relative; }
     .g-btn:active { transform: scale(.93) translateY(2px); }
+    @keyframes actionGlowBlue {
+      0%,100% { box-shadow: 0 5px 20px rgba(25,118,210,.5), 0 1px 0 rgba(255,255,255,.12) inset; }
+      50%      { box-shadow: 0 9px 26px rgba(25,118,210,.66), 0 0 28px rgba(33,150,243,.3), 0 1px 0 rgba(255,255,255,.14) inset; }
+    }
+    @keyframes actionGlowRed {
+      0%,100% { box-shadow: 0 5px 20px rgba(198,40,40,.5), 0 1px 0 rgba(255,255,255,.12) inset; }
+      50%      { box-shadow: 0 9px 26px rgba(198,40,40,.66), 0 0 28px rgba(229,57,53,.28), 0 1px 0 rgba(255,255,255,.14) inset; }
+    }
+    @keyframes actionGlowPurple {
+      0%,100% { box-shadow: 0 5px 20px rgba(106,27,154,.5), 0 1px 0 rgba(255,255,255,.12) inset; }
+      50%      { box-shadow: 0 9px 26px rgba(106,27,154,.66), 0 0 28px rgba(142,36,170,.28), 0 1px 0 rgba(255,255,255,.14) inset; }
+    }
     .g-btn.hit {
       background: linear-gradient(160deg, #2196f3, #0d47a1);
       box-shadow: 0 5px 20px rgba(25,118,210,.5), 0 1px 0 rgba(255,255,255,.12) inset;
+      animation: actionGlowBlue 1.9s ease-in-out infinite;
     }
     .g-btn.hit:active { box-shadow: 0 2px 8px rgba(25,118,210,.4); }
     .g-btn.stand {
       background: linear-gradient(160deg, #e53935, #7f0000);
       box-shadow: 0 5px 20px rgba(198,40,40,.5), 0 1px 0 rgba(255,255,255,.12) inset;
+      animation: actionGlowRed 1.9s ease-in-out infinite;
     }
     .g-btn.stand:active { box-shadow: 0 2px 8px rgba(198,40,40,.4); }
     .g-btn.double {
       background: linear-gradient(160deg, #8e24aa, #380d54);
       box-shadow: 0 5px 20px rgba(106,27,154,.5), 0 1px 0 rgba(255,255,255,.12) inset;
+      animation: actionGlowPurple 1.9s ease-in-out infinite;
     }
     .g-btn.double:active { box-shadow: 0 2px 8px rgba(106,27,154,.4); }
 
@@ -413,6 +451,7 @@
       padding: 17px; cursor: pointer;
       box-shadow: 0 6px 28px rgba(201,162,39,.5), 0 0 50px rgba(201,162,39,.12);
       transition: transform .12s;
+      animation: goldPulse 2.3s ease-in-out infinite;
     }
     .next-btn::after {
       content: ''; position: absolute; top: 0; width: 60%; height: 100%;
@@ -441,6 +480,7 @@
       padding: 18px 56px; cursor: pointer;
       box-shadow: 0 6px 28px rgba(201,162,39,.5);
       transition: transform .12s;
+      animation: goldPulse 2.3s ease-in-out infinite;
     }
     .go-btn::after {
       content: ''; position: absolute; top: 0; width: 60%; height: 100%;
@@ -575,9 +615,13 @@
     #swipe-hint {
       text-align:center; padding-top:6px;
       font-size:10px; letter-spacing:2px; text-transform:uppercase;
-      color:rgba(255,255,255,.4); display:none; white-space:nowrap;
+      color:rgba(255,255,255,.4); white-space:nowrap;
+      min-height:18px;
+      opacity:0;
+      visibility:hidden;
+      transition:opacity .22s ease;
     }
-    #swipe-hint.show { display:block; animation:hintFade 3.4s ease forwards; }
+    #swipe-hint.show { visibility:visible; animation:hintFade 3.4s ease forwards; }
   </style>
 </head>
 <body>
