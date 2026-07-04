@@ -477,6 +477,66 @@
 
     /* ── Particles canvas ────────────────────────────────────────── */
     #particles { position:absolute; inset:0; pointer-events:none; z-index:55; display:none; }
+
+    /* ── Floating chip delta ─────────────────────────────────────── */
+    @keyframes floatUp {
+      0%   { opacity:1; transform:translateY(0) scale(1); }
+      65%  { opacity:1; }
+      100% { opacity:0; transform:translateY(-62px) scale(.7); }
+    }
+    .chip-delta {
+      position:absolute; top:-10px; right:-16px; z-index:100;
+      font-size:13px; font-weight:800; padding:2px 8px;
+      border-radius:12px; pointer-events:none;
+      animation:floatUp 1.1s cubic-bezier(.22,1,.36,1) forwards;
+      white-space:nowrap;
+    }
+    .chip-delta.pos { color:#69f0ae; text-shadow:0 0 10px rgba(105,240,174,.9); }
+    .chip-delta.neg { color:#ef5350; text-shadow:0 0 10px rgba(239,83,80,.8); }
+
+    /* ── Hole card mystery glow ──────────────────────────────────── */
+    @keyframes mysteryGlow {
+      0%,100% { border-color:rgba(130,150,255,.38); box-shadow:inset 0 0 6px rgba(80,110,255,.05); }
+      50%      { border-color:rgba(160,185,255,.92); box-shadow:inset 0 0 18px rgba(80,110,255,.2),0 0 14px 4px rgba(80,110,255,.22); }
+    }
+    .card.card-flipper:not(.flipped) .card-back {
+      animation:mysteryGlow 2.2s ease-in-out infinite;
+    }
+
+    /* ── Player turn glow ────────────────────────────────────────── */
+    @keyframes turnGlow {
+      0%,100% { box-shadow:none; outline-color:rgba(105,240,174,0); }
+      50%      { box-shadow:0 0 0 2px rgba(105,240,174,.28),0 4px 22px rgba(105,240,174,.1); outline-color:rgba(105,240,174,.28); }
+    }
+    .hand-zone.your-turn {
+      border-radius:14px;
+      outline:2px solid rgba(105,240,174,0);
+      outline-offset:4px;
+      animation:turnGlow 1.5s ease-in-out infinite;
+    }
+
+    /* ── Hand history strip ──────────────────────────────────────── */
+    #history-strip {
+      display:flex; justify-content:center; align-items:center;
+      gap:5px; padding:4px 8px; min-height:18px; flex-shrink:0;
+    }
+    .h-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; transition:transform .2s; }
+    .h-dot.w { background:#69f0ae; box-shadow:0 0 6px rgba(105,240,174,.8); }
+    .h-dot.l { background:#ef5350; box-shadow:0 0 6px rgba(239,83,80,.7); }
+    .h-dot.p { background:#e8c34a; box-shadow:0 0 6px rgba(232,195,74,.7); }
+    .h-dot:last-child { transform:scale(1.5); }
+
+    /* ── Swipe hint ──────────────────────────────────────────────── */
+    @keyframes hintFade {
+      0%,55% { opacity:.65; }
+      100%   { opacity:0; }
+    }
+    #swipe-hint {
+      text-align:center; padding-top:6px;
+      font-size:10px; letter-spacing:2px; text-transform:uppercase;
+      color:rgba(255,255,255,.4); display:none; white-space:nowrap;
+    }
+    #swipe-hint.show { display:block; animation:hintFade 3.4s ease forwards; }
   </style>
 </head>
 <body>
@@ -528,7 +588,7 @@
       </div>
 
       <!-- Player hand -->
-      <div class="hand-zone">
+      <div class="hand-zone" id="p-zone">
         <div class="hand-meta">
           <span class="hand-name">You</span>
           <span class="val-badge" id="p-val">0</span>
@@ -546,12 +606,16 @@
       <div class="stat"><div class="stat-v" id="sh">0</div><div class="stat-l">Hands</div></div>
     </div>
 
+    <!-- Hand history dots -->
+    <div id="history-strip"></div>
+
     <!-- Action buttons -->
     <div class="action-bar">
       <div class="btn-row c2" id="btn-row">
         <button class="g-btn hit"   onclick="doHit()"><span class="ico">👆</span>HIT</button>
         <button class="g-btn stand" onclick="doStand()"><span class="ico">✋</span>STAND</button>
       </div>
+      <div id="swipe-hint">↑ swipe to hit &nbsp;·&nbsp; ↓ swipe to stand</div>
     </div>
   </div>
 
@@ -592,6 +656,7 @@ let curBet = 0, pendingBet = 25;
 let phase  = 'bet';
 let stats  = { w:0, l:0, p:0, h:0 };
 let holeCardEl = null; // reference to the flippable hole-card element
+let _swipeX = 0, _swipeY = 0, _hintShown = false;
 
 // ── Audio Engine (Web Audio API — no files needed) ───────────────
 let _ctx = null;
@@ -835,6 +900,56 @@ function shakeBust() {
   el.addEventListener('animationend',()=>el.classList.remove('shake'),{once:true});
 }
 
+// ── Floating chip delta ─────────────────────────────────────────
+function floatDelta(amount) {
+  if(!amount) return;
+  const pill = $('hdr-chips').parentElement;
+  pill.style.position = 'relative';
+  const el = document.createElement('div');
+  el.className = 'chip-delta ' + (amount > 0 ? 'pos' : 'neg');
+  el.textContent = (amount > 0 ? '+' : '') + '$' + Math.abs(amount);
+  pill.appendChild(el);
+  el.addEventListener('animationend', () => el.remove(), { once: true });
+}
+
+// ── Hand history dots ─────────────────────────────────────────────
+function addHistoryDot(type) {
+  const strip = $('history-strip');
+  // Remove scale from old last dot
+  const prev = strip.lastChild;
+  if(prev) prev.style.transform = 'scale(1)';
+  const dot = document.createElement('div');
+  dot.className = 'h-dot ' + type;
+  strip.appendChild(dot);
+  if(strip.children.length > 14) strip.removeChild(strip.firstChild);
+}
+
+// ── Player turn indicator ─────────────────────────────────────────
+function setTurn(who) {
+  const pz = $('p-zone');
+  if(pz) pz.classList.toggle('your-turn', who === 'player');
+}
+
+// ── Swipe gestures ────────────────────────────────────────────────
+document.addEventListener('touchstart', e => {
+  _swipeX = e.touches[0].clientX;
+  _swipeY = e.touches[0].clientY;
+}, { passive: true });
+document.addEventListener('touchend', e => {
+  if(phase !== 'playing') return;
+  const dx = e.changedTouches[0].clientX - _swipeX;
+  const dy = e.changedTouches[0].clientY - _swipeY;
+  if(Math.abs(dy) > Math.abs(dx) * 1.1 && Math.abs(dy) > 44) {
+    if(dy < 0) doHit(); else doStand();
+  }
+}, { passive: true });
+
+function showSwipeHint() {
+  if(_hintShown) return; _hintShown = true;
+  const h = $('swipe-hint'); h.classList.add('show');
+  h.addEventListener('animationend', () => h.classList.remove('show'), { once: true });
+}
+
 // ── Bet screen ───────────────────────────────────────────────────
 function qBet(n,btn) {
   sndClick();
@@ -889,16 +1004,16 @@ function afterDeal() {
       stats.h++;
       if(pv===21&&dv===21){
         chips+=curBet; stats.p++;
-        updateHdr(); updateStats(); sndPush();
+        updateHdr(); updateStats(); sndPush(); addHistoryDot('p');
         setTimeout(()=>showResult('PUSH','push','Both have Blackjack','Bet returned','neu'),650);
       } else if(pv===21){
         const profit=Math.floor(curBet*1.5);
         chips+=curBet+profit; stats.w++;
-        updateHdr(); updateStats(); sndBlackjack();
+        updateHdr(); updateStats(); sndBlackjack(); floatDelta(profit); addHistoryDot('w');
         glowCards('p-cards',true);
         setTimeout(()=>{ burst('blackjack'); showResult('BLACKJACK!','win','Natural 21 — 3:2 payout','+$'+profit,'pos'); },380);
       } else {
-        stats.l++; updateStats(); sndLose();
+        stats.l++; updateStats(); sndLose(); floatDelta(-curBet); addHistoryDot('l');
         setTimeout(()=>showResult('DEALER WINS','lose','Dealer has Blackjack','-$'+curBet,'neg'),650);
       }
     },520); // wait for flip animation
@@ -907,6 +1022,7 @@ function afterDeal() {
 
   setActions(chips>=curBet);
   phase='playing';
+  setTurn('player'); showSwipeHint();
 }
 
 // ── Player actions ───────────────────────────────────────────────
@@ -916,9 +1032,9 @@ function doHit() {
   pHand.push(pop()); addCard('p-cards',pHand.at(-1)); refreshP();
   const v=hv(pHand);
   if(v>21){
-    phase='done'; clearActions();
+    phase='done'; clearActions(); setTurn(null);
     shakeBust(); sndBust();
-    stats.h++; stats.l++; updateStats();
+    stats.h++; stats.l++; updateStats(); floatDelta(-curBet); addHistoryDot('l');
     setTimeout(()=>showResult('BUST','lose','Over 21','-$'+curBet,'neg'),620);
     return;
   }
@@ -928,7 +1044,7 @@ function doHit() {
 
 function doStand() {
   if(phase!=='playing') return;
-  sndClick(); phase='done'; clearActions(); runDealer();
+  sndClick(); phase='done'; clearActions(); setTurn(null); runDealer();
 }
 
 function doDouble() {
@@ -937,12 +1053,12 @@ function doDouble() {
   chips-=curBet; curBet*=2;
   $('cur-bet').textContent=curBet; updateHdr();
   sndDeal();
-  pHand.push(pop()); addCard('p-cards',pHand.at(-1)); refreshP(); clearActions();
+  pHand.push(pop()); addCard('p-cards',pHand.at(-1)); refreshP(); clearActions(); setTurn(null);
   phase='done';
   const v=hv(pHand);
   if(v>21){
     shakeBust(); sndBust();
-    stats.h++; stats.l++; updateStats();
+    stats.h++; stats.l++; updateStats(); floatDelta(-curBet); addHistoryDot('l');
     setTimeout(()=>showResult('BUST','lose','Doubled — over 21','-$'+curBet,'neg'),620);
     return;
   }
@@ -996,6 +1112,10 @@ function resolveRound() {
   }
 
   updateHdr(); updateStats();
+  // floating delta & history dot
+  if(cls==='win')      { floatDelta(curBet); addHistoryDot('w'); }
+  else if(cls==='push'){ addHistoryDot('p'); }
+  else                  { floatDelta(-curBet); addHistoryDot('l'); }
   if(doParticles){ glowCards('p-cards'); setTimeout(()=>burst('win'),160); }
 
   // 1.2 s pause — player sees the final table state before the overlay appears
@@ -1015,6 +1135,8 @@ function nextHand() {
 function restart() {
   chips=500; pendingBet=25;
   stats={w:0,l:0,p:0,h:0};
+  $('history-strip').innerHTML='';
+  _hintShown=false;
   updateHdr(); updateStats();
   $('bet-val').textContent=25;
   phase='bet'; showScreen('bet-screen');
